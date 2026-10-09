@@ -66,6 +66,8 @@ local function update_anchors()
     if not player then return false end
     local manager = AshitaCore:GetMemoryManager()
     local entity, target = manager:GetEntity(), manager:GetTarget()
+    -- Follow the rendered player transform for responsive movement and the
+    -- original camera height; entity-table roots lag behind animated models.
     local x, y, z = get_bone(entity:GetActorPointer(player.TargetIndex), 2)
     if x == nil then return false end
     player_x, player_y, player_z = x, y, z + 0.5
@@ -107,12 +109,12 @@ local function offsets(settings)
 end
 
 local function update_position(camera, distance, settings)
-    local ox, oy, oz = offsets(settings)
-    local ax, ay, az = player_x + ox, player_y + oy, player_z + oz
     if locked_on then
         theta = -math.atan2(target_y - player_y, target_x - player_x) % (math.pi * 2)
         phi = 1.85
     end
+    local ox, oy, oz = offsets(settings)
+    local ax, ay, az = player_x + ox, player_y + oy, player_z + oz
     camera.FocalX = locked_on and target_x or ax
     camera.FocalY = locked_on and target_y or ay
     camera.FocalZ = locked_on and target_z or az
@@ -135,11 +137,17 @@ function camera_module.end_scene(settings)
     began = false
     local camera = get_camera()
     if camera == nil then return end
-    -- Keep the game's collision correction, excluding planar offsets from distance.
-    local ox, oy, oz = offsets(settings)
-    local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy, camera.Z - player_z - oz
-    local distance = dx * -math.sin(phi) * math.cos(-theta)
-        + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
+    -- The game's correction can vary slightly between scenes. Feeding that
+    -- value back for a single frame causes visible lock-on zoom/position jitter.
+    local distance = settings.distance
+    if locked_on then
+        distance = settings.lockonDistance
+    else
+        local ox, oy, oz = offsets(settings)
+        local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy, camera.Z - player_z - oz
+        distance = dx * -math.sin(phi) * math.cos(-theta)
+            + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
+    end
     if not update_anchors() then return end
     update_position(camera, distance, settings)
 end
