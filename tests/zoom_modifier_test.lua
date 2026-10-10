@@ -1,0 +1,142 @@
+local config = dofile('config.lua')
+assert(config.defaults.zoomModifierSource == 1)
+assert(config.defaults.zoomModifierButton == 16)
+assert(config.defaults.zoomSpeed == 0.05)
+assert(config.ranges.zoomSpeed[1] == 0.05 and config.ranges.zoomSpeed[2] == 0.50)
+
+local input = dofile('input.lua')
+assert(input.update_trigger_values == nil)
+assert(input.get_trigger_values == nil)
+assert(input.record_xinput_button == nil)
+assert(input.get_last_xinput_button_event == nil)
+local menu_file = assert(io.open('radgamepad.lua', 'r'))
+local menu_source = menu_file:read('*a')
+menu_file:close()
+assert(not menu_source:find('Analog trigger pressure', 1, true))
+assert(not menu_source:find('Last XInput event', 1, true))
+assert(not menu_source:find('Zoom Modifier held', 1, true))
+local settings = {
+    zoomModifierSource = 1,
+    zoomModifierButton = 16,
+}
+input.initialize()
+assert(input.zoom_modifier_label(settings) == 'XInput left trigger')
+assert(not input.zoom_binding())
+-- Ashita exposes XInput triggers as xinput_button IDs 16 (LT) and 17 (RT).
+input.handle_button(settings, 'xinput', {button = 16, state = 1})
+assert(input.zoom_modifier_held(settings))
+input.update_axes(32767 * 0.75, -32767 * 0.5)
+local rotation_x, rotation_y = input.get_camera_rotation_axes(settings)
+assert(rotation_x == 0 and rotation_y == 0)
+assert(math.abs(input.get_vertical() + 0.5) < 0.00001) -- Zoom still reads the unfiltered stick axis.
+input.handle_button(settings, 'xinput', {button = 16, state = 0})
+assert(not input.zoom_modifier_held(settings))
+rotation_x, rotation_y = input.get_camera_rotation_axes(settings)
+assert(math.abs(rotation_x - 0.75) < 0.00001 and math.abs(rotation_y + 0.5) < 0.00001)
+-- Ashita emits analog XInput trigger events as state 0..255.
+input.begin_zoom_binding()
+local _, pressure_capture = input.handle_button(settings, 'xinput', {button = 16, state = 255})
+assert(pressure_capture and settings.zoomModifierSource == 1 and settings.zoomModifierButton == 16)
+assert(input.zoom_modifier_held(settings))
+local _, _, pressure_release = input.handle_button(settings, 'xinput', {button = 16, state = 0})
+assert(pressure_release and not input.zoom_modifier_held(settings))
+settings.zoomModifierButton = 17
+assert(input.zoom_modifier_label(settings) == 'XInput right trigger')
+input.handle_button(settings, 'xinput', {button = 17, state = 1})
+assert(input.zoom_modifier_held(settings))
+input.handle_button(settings, 'xinput', {button = 17, state = 0})
+assert(not input.zoom_modifier_held(settings))
+
+-- Keep legacy analog trigger settings equivalent to the digital event IDs.
+settings.zoomModifierButton = 256
+input.handle_button(settings, 'xinput', {button = 16, state = 1})
+assert(input.zoom_modifier_held(settings))
+input.handle_button(settings, 'xinput', {button = 16, state = 0})
+assert(not input.zoom_modifier_held(settings))
+
+-- Analog trigger threshold and hysteresis.
+input.handle_trigger(settings, 'left', 20)
+assert(not input.zoom_modifier_held(settings))
+input.handle_trigger(settings, 'left', 40)
+assert(input.zoom_modifier_held(settings))
+input.handle_trigger(settings, 'left', 20)
+assert(input.zoom_modifier_held(settings))
+input.handle_trigger(settings, 'left', 10)
+assert(not input.zoom_modifier_held(settings))
+local _, invalid_captured = input.handle_trigger(settings, 'left', nil)
+assert(not invalid_captured)
+
+-- DirectInput uses the same raw button events as BetterTarget, including triggers.
+input.begin_zoom_binding()
+local _, dinput_trigger_captured = input.handle_button(settings, 'dinput', {button = 12, state = 128})
+assert(dinput_trigger_captured)
+assert(settings.zoomModifierSource == 2 and settings.zoomModifierButton == 12)
+assert(input.zoom_modifier_held(settings))
+local _, _, dinput_trigger_released = input.handle_button(settings, 'dinput', {button = 12, state = 0})
+assert(dinput_trigger_released and not input.zoom_modifier_held(settings))
+
+-- Any Ashita button backend can be captured and used as the held modifier.
+input.begin_zoom_binding()
+assert(input.zoom_binding())
+local _, shared_capture = input.handle_button(settings, 'xinput', {button = 2, state = 1, blocked = true})
+assert(shared_capture)
+assert(settings.zoomModifierSource == 1 and settings.zoomModifierButton == 2)
+input.handle_button(settings, 'xinput', {button = 2, state = 0})
+
+input.begin_zoom_binding()
+local _, injected_trigger_capture = input.handle_button(settings, 'xinput', {button = 16, state = 1, injected = true})
+assert(injected_trigger_capture)
+assert(settings.zoomModifierSource == 1 and settings.zoomModifierButton == 16)
+input.handle_button(settings, 'xinput', {button = 16, state = 0})
+
+input.begin_zoom_binding()
+local _, captured = input.handle_button(settings, 'dinput', {button = 9, state = 128})
+assert(captured)
+assert(not input.zoom_binding())
+assert(settings.zoomModifierSource == 2 and settings.zoomModifierButton == 9)
+assert(input.zoom_modifier_held(settings))
+local _, _, released = input.handle_button(settings, 'dinput', {button = 9, state = 0})
+assert(released)
+assert(not input.zoom_modifier_held(settings))
+
+input.begin_zoom_binding()
+assert(input.zoom_binding())
+local _, trigger_captured = input.handle_trigger(settings, 'right', 40)
+assert(trigger_captured)
+assert(not input.zoom_binding())
+assert(settings.zoomModifierSource == 1 and settings.zoomModifierButton == 257)
+assert(input.zoom_modifier_label(settings) == 'XInput right trigger')
+input.handle_trigger(settings, 'right', 10)
+assert(not input.zoom_modifier_held(settings))
+
+-- Binding samples a trigger that is already held when the prompt opens.
+input.handle_trigger(settings, 'left', 40)
+input.begin_zoom_binding()
+local _, already_held_capture = input.handle_trigger(settings, 'left', 40)
+assert(already_held_capture and not input.zoom_binding())
+input.handle_trigger(settings, 'left', 0)
+
+input.clear_zoom_binding(settings)
+assert(input.zoom_modifier_label(settings) == 'Unbound')
+assert(settings.zoomModifierSource == 0 and settings.zoomModifierButton == 0)
+
+-- Stick-up decreases distance and stick-down increases it, without inversion input.
+local distance, changed = input.adjust_distance(5, 1, true, 0.05, 1, 20)
+assert(changed and distance < 5)
+distance = input.adjust_distance(5, -1, true, 0.05, 1, 20)
+assert(distance > 5)
+distance = input.adjust_distance(5, 0.1, true, 0.05, 1, 20)
+assert(distance == 5)
+distance = input.adjust_distance(1, 1, true, 0.05, 1, 20)
+assert(distance == 1)
+distance = input.adjust_distance(20, -1, true, 0.05, 1, 20)
+assert(distance == 20)
+distance = input.adjust_distance(5, 1, false, 0.05, 1, 20)
+assert(distance == 5)
+local default_speed = input.adjust_distance(5, 1, true, 0.05, 1, 20)
+local faster_speed = input.adjust_distance(5, 1, true, 0.10, 1, 20)
+assert(math.abs((5 - faster_speed) - 2 * (5 - default_speed)) < 0.000001)
+assert(input.adjust_distance(1.02, 1, true, 0.10, 1, 20) == 1)
+assert(input.adjust_distance(19.95, -1, true, 0.10, 1, 20) == 20)
+
+print('radgamepad zoom modifier tests passed')

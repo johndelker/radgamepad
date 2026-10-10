@@ -92,13 +92,13 @@ local function update_anchors()
 end
 
 local function update_rotation(settings)
-    input.connect_gamepad()
     if just_zoned then theta, phi, just_zoned = player_heading, 1.85, false end
+    local horizontal_axis, vertical_axis = input.get_camera_rotation_axes(settings)
     local horizontal_direction = settings.invertHorizontal and -1 or 1
-    theta = (theta + input.get_horizontal() * horizontal_direction * 0.033333
+    theta = (theta + horizontal_axis * horizontal_direction * 0.033333
         * settings.cameraSensitivity * settings.horizontalSensitivity) % (math.pi * 2)
     local vertical_direction = settings.invertVertical and -1 or 1
-    phi = math.max(0.5, math.min(math.pi - 0.5, phi + input.get_vertical() * vertical_direction
+    phi = math.max(0.5, math.min(math.pi - 0.5, phi + vertical_axis * vertical_direction
         * 0.033333 * settings.cameraSensitivity * settings.verticalSensitivity))
 end
 
@@ -126,10 +126,15 @@ end
 function camera_module.begin_scene(settings)
     began = false
     local camera = get_camera()
-    if camera == nil or not update_anchors() then return end
+    if camera == nil or not update_anchors() then return false end
     update_rotation(settings)
+    local distance_key = locked_on and 'lockonDistance' or 'distance'
+    local distance, zoomed = input.adjust_distance(settings[distance_key], input.get_vertical(),
+        input.zoom_modifier_held(settings), settings.zoomSpeed, 1, 20)
+    if zoomed then settings[distance_key] = distance end
     update_position(camera, locked_on and settings.lockonDistance or settings.distance, settings)
     began = true
+    return zoomed
 end
 
 function camera_module.end_scene(settings)
@@ -137,18 +142,11 @@ function camera_module.end_scene(settings)
     began = false
     local camera = get_camera()
     if camera == nil then return end
-    -- The game's correction can vary slightly between scenes. Feeding that
-    -- value back for a single frame causes visible lock-on zoom/position jitter.
-    local distance = settings.distance
-    if locked_on then
-        distance = settings.lockonDistance
-    else
-        local ox, oy, oz = offsets(settings)
-        local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy, camera.Z - player_z - oz
-        distance = dx * -math.sin(phi) * math.cos(-theta)
-            + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
-    end
+    -- Keep the configured distance authoritative. The base game can briefly
+    -- alter its camera during input-state transitions; adopting that transient
+    -- position here produces a one-frame zoom pulse.
     if not update_anchors() then return end
+    local distance = locked_on and settings.lockonDistance or settings.distance
     update_position(camera, distance, settings)
 end
 
