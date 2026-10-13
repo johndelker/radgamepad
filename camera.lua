@@ -142,11 +142,14 @@ function camera_module.end_scene(settings)
     began = false
     local camera = get_camera()
     if camera == nil then return end
-    -- Keep the configured distance authoritative. The base game can briefly
-    -- alter its camera during input-state transitions; adopting that transient
-    -- position here produces a one-frame zoom pulse.
+    -- Preserve the base game's camera collision correction. Measure along the
+    -- camera's current view axis before refreshing player/target anchors.
+    local ox, oy, oz = offsets(settings)
+    local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy,
+        camera.Z - player_z - oz
+    local distance = dx * -math.sin(phi) * math.cos(-theta)
+        + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
     if not update_anchors() then return end
-    local distance = locked_on and settings.lockonDistance or settings.distance
     update_position(camera, distance, settings)
 end
 

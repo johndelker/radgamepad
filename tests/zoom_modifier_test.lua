@@ -5,6 +5,7 @@ assert(config.defaults.zoomSpeed == 0.05)
 assert(config.ranges.zoomSpeed[1] == 0.05 and config.ranges.zoomSpeed[2] == 0.50)
 
 local input = dofile('input.lua')
+assert(input.block_mouse_wheel == nil, 'Radgamepad must not swallow global mouse-wheel events')
 assert(input.update_trigger_values == nil)
 assert(input.get_trigger_values == nil)
 assert(input.record_xinput_button == nil)

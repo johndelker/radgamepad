@@ -58,15 +58,15 @@ local settings = {
 }
 assert(camera.begin_scene(settings) == false)
 
--- Model a one-frame base-game camera adjustment between our scene hooks.
+-- Model the game's camera collision clamp between scene hooks.
 local phi = 1.85
-camera_state.X = -7 * math.sin(phi)
+camera_state.X = -4.5 * math.sin(phi)
 camera_state.Y = 0
-camera_state.Z = 0.5 + 7 * math.cos(phi)
+camera_state.Z = 0.5 + 4.5 * math.cos(phi)
 camera.end_scene(settings)
 
 local observed_distance = math.sqrt(camera_state.X * camera_state.X
     + (camera_state.Z - 0.5) * (camera_state.Z - 0.5))
-assert(math.abs(observed_distance - 6) < 0.0001,
-    string.format('expected configured exploration distance 6 after transient adjustment, got %.4f', observed_distance))
-print('radgamepad camera reconciliation tests passed')
+assert(math.abs(observed_distance - 4.5) < 0.0001,
+    string.format('expected end-scene collision distance 4.5, got %.4f', observed_distance))
+print('radgamepad camera collision tests passed')
