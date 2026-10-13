@@ -1,4 +1,5 @@
 local camera_state = {X = 0, Y = 0, Z = 0, FocalX = 0, FocalY = 0, FocalZ = 0}
+local player_x = 0
 local fake_ffi = {
     typeof = function() return true end,
     cast = function(kind, address)
@@ -23,7 +24,10 @@ ashita = {memory = {
         if address == 20 then return 40 end
         return 0
     end,
-    read_float = function() return 0 end,
+    read_float = function(address)
+        if address == 0x679 then return player_x end
+        return 0
+    end,
     read_uint16 = function() return 0 end,
 }}
 local entity = {
@@ -69,4 +73,16 @@ local observed_distance = math.sqrt(camera_state.X * camera_state.X
     + (camera_state.Z - 0.5) * (camera_state.Z - 0.5))
 assert(math.abs(observed_distance - 4.5) < 0.0001,
     string.format('expected end-scene collision distance 4.5, got %.4f', observed_distance))
+
+-- If the player moves toward the camera during the frame, the latest player
+-- anchor must participate in collision distance detection even with no stick input.
+assert(camera.begin_scene(settings) == false)
+player_x = -1
+camera.end_scene(settings)
+observed_distance = math.sqrt((camera_state.X - player_x) ^ 2
+    + camera_state.Y ^ 2 + (camera_state.Z - 0.5) ^ 2)
+local movement_clamped_distance = settings.distance - math.sin(phi)
+assert(math.abs(observed_distance - movement_clamped_distance) < 0.0001,
+    string.format('player-motion collision was missed: expected %.4f, got %.4f',
+        movement_clamped_distance, observed_distance))
 print('radgamepad camera collision tests passed')

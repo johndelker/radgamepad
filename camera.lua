@@ -142,14 +142,19 @@ function camera_module.end_scene(settings)
     began = false
     local camera = get_camera()
     if camera == nil then return end
-    -- Preserve the base game's camera collision correction. Measure along the
-    -- camera's current view axis before refreshing player/target anchors.
+    local previous_lock_state = locked_on
+    if not update_anchors() then return end
+    if locked_on ~= previous_lock_state then
+        update_position(camera, locked_on and settings.lockonDistance or settings.distance, settings)
+        return
+    end
+    -- Include player movement since BeginScene when measuring the collision
+    -- correction along the camera's current view axis.
     local ox, oy, oz = offsets(settings)
     local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy,
         camera.Z - player_z - oz
     local distance = dx * -math.sin(phi) * math.cos(-theta)
         + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
-    if not update_anchors() then return end
     update_position(camera, distance, settings)
 end
 
