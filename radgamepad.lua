@@ -5,6 +5,11 @@ addon.desc = 'Modern third-person gamepad camera with independent configuration.
 
 require('common')
 local ffi = require('ffi')
+require('win32types')
+pcall(ffi.cdef, [[
+    HWND __stdcall GetForegroundWindow(void);
+    DWORD __stdcall GetWindowThreadProcessId(HWND hWnd, LPDWORD lpdwProcessId);
+]])
 if not pcall(ffi.typeof, 'radgamepad_xinput_state_t*') then
     ffi.cdef[[
         typedef struct radgamepad_xinput_gamepad_t {
@@ -28,6 +33,21 @@ local directory = debug.getinfo(1, 'S').source:sub(2):match('(.*[\\/])') or './'
 local config = dofile(directory .. 'config.lua')
 local input = dofile(directory .. 'input.lua')
 local camera = assert(loadfile(directory .. 'camera.lua'))(input)
+local focus = dofile(directory .. 'focus.lua')
+local function game_window_focused()
+    local raw_hwnd = AshitaCore:GetProperties():GetFinalFantasyHwnd()
+    if raw_hwnd == nil or raw_hwnd == 0 then return false end
+    local hwnd = ffi.cast('HWND', raw_hwnd)
+    if hwnd == ffi.NULL then return false end
+    local foreground = ffi.C.GetForegroundWindow()
+    if foreground == nil or foreground == ffi.NULL then return false end
+    local function process_id(window)
+        local result = ffi.new('DWORD[1]')
+        if ffi.C.GetWindowThreadProcessId(window, result) == 0 then return nil end
+        return tonumber(result[0])
+    end
+    return focus.is_game_process_foreground(hwnd, function() return foreground end, process_id)
+end
 local settings, loaded, zoom_dirty = nil, false, false
 local menu_open = {false}
 
@@ -124,20 +144,107 @@ for _, source in ipairs({'xinput', 'dinput'}) do
         if released then flush_zoom() end
     end)
 end
+local watch_file, watch_label = nil, nil
+local function camera_distance_log_path()
+    local install_path = AshitaCore:GetInstallPath()
+    local separator = install_path:match('[\\/]$') and '' or '\\'
+    return install_path .. separator .. 'config\\addons\\radgamepad_camera_distance.log'
+end
+local function write_camera_distance(file, label)
+    local rgp_distance, vanilla_distance, delta = camera.get_distance_sample()
+    if delta == nil then return false, 'No camera distance sample is available yet.' end
+    local ok, err = file:write(string.format('%s\tRGP=%.4f\tvanilla=%.4f\tdelta=%.4f\n',
+        label, rgp_distance, vanilla_distance, delta))
+    if not ok then return false, err end
+    ok, err = file:flush()
+    if not ok then return false, err end
+    return true, rgp_distance, vanilla_distance, delta
+end
+local function log_camera_distance(label)
+    local file, err = io.open(camera_distance_log_path(), 'a')
+    if not file then
+        print('[radgamepad] Could not open camera distance log: ' .. tostring(err))
+        return
+    end
+    local ok, result, vanilla_distance, delta = write_camera_distance(file, label)
+    file:close()
+    if not ok then
+        print('[radgamepad] ' .. tostring(result))
+        return
+    end
+    print(string.format('[radgamepad] Logged %s: RGP %.4f, vanilla %.4f, delta %.4f yalms.',
+        label, result, vanilla_distance, delta))
+end
+local function toggle_camera_distance_watch(label)
+    if watch_file then
+        watch_file:flush()
+        watch_file:close()
+        watch_file, watch_label = nil, nil
+        print('[radgamepad] Camera distance watch stopped.')
+        return
+    end
+    if not label or label == '' then
+        print('[radgamepad] Usage: /rgp watch <label> (run /rgp watch again to stop)')
+        return
+    end
+    local file, err = io.open(camera_distance_log_path(), 'a')
+    if not file then
+        print('[radgamepad] Could not open camera distance log: ' .. tostring(err))
+        return
+    end
+    watch_file, watch_label = file, label
+    print(string.format('[radgamepad] Watching camera distance each frame as "%s". Run /rgp watch again to stop.', label))
+end
+local function write_watched_camera_distance()
+    if not watch_file then return end
+    local ok, err = write_camera_distance(watch_file, watch_label)
+    if not ok and err ~= 'No camera distance sample is available yet.' then
+        print('[radgamepad] Camera distance watch stopped: ' .. tostring(err))
+        pcall(function() watch_file:close() end)
+        watch_file, watch_label = nil, nil
+    end
+end
 ashita.events.register('command', 'radgamepad_command', function(e)
     local args = e.command:args()
-    if #args == 0 or args[1]:lower() ~= '/radgamepad' then return end
+    if #args == 0 then return end
+    local command = args[1]:lower()
+    if command ~= '/radgamepad' and command ~= '/rgp' then return end
     e.blocked = true
+    if command == '/rgp' and #args >= 2 and args[2]:lower() == 'watch' then
+        if watch_file then
+            toggle_camera_distance_watch()
+        elseif #args == 3 then
+            toggle_camera_distance_watch(args[3])
+        else
+            toggle_camera_distance_watch(nil)
+        end
+        return
+    end
+    if command == '/rgp' and #args >= 2 and args[2]:lower() == 'log' then
+        if #args ~= 3 or args[3] == '' then
+            print('[radgamepad] Usage: /rgp log <label>')
+            return
+        end
+        log_camera_distance(args[3])
+        return
+    end
+    if #args ~= 1 then
+        print('[radgamepad] Usage: /rgp [log <label> | watch [label]]')
+        return
+    end
     menu_open[1] = not menu_open[1]
 end)
 ashita.events.register('d3d_present', 'radgamepad_present', function()
     if loaded and menu_open[1] then draw_menu() end
 end)
 ashita.events.register('d3d_beginscene', 'radgamepad_beginscene', function(back_buffer)
-    if loaded and back_buffer then zoom_dirty = camera.begin_scene(settings) or zoom_dirty end
+    if loaded and back_buffer then
+        zoom_dirty = camera.begin_scene(settings, game_window_focused()) or zoom_dirty
+        write_watched_camera_distance()
+    end
 end)
 ashita.events.register('d3d_endscene', 'radgamepad_endscene', function(back_buffer)
-    if loaded and back_buffer then camera.end_scene(settings) end
+    if loaded and back_buffer then camera.end_scene(settings, game_window_focused()) end
 end)
 ashita.events.register('packet_in', 'radgamepad_packet_in', function(e)
     if e.id == 0x00A then flush_zoom(); camera.zone_in(); input.initialize()
@@ -145,6 +252,10 @@ ashita.events.register('packet_in', 'radgamepad_packet_in', function(e)
 end)
 ashita.events.register('unload', 'radgamepad_unload', function()
     loaded = false
+    if watch_file then
+        pcall(function() watch_file:flush(); watch_file:close() end)
+        watch_file, watch_label = nil, nil
+    end
     flush_zoom()
     camera.logout()
     input.shutdown()

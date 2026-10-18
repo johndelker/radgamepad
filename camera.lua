@@ -18,6 +18,19 @@ local theta, phi, player_heading = 0, 1.85, 0
 local player_x, player_y, player_z = 0, 0, 0
 local target_x, target_y, target_z = 0, 0, 0
 local locked_on = false
+--[[
+TEMPORARY COLLISION TEST: the old sampling/adjustment implementation is
+kept here as comments so it can be restored after the zoom-jitter check.
+local COLLISION_DISTANCE_EPSILON = 0.05
+local LOCKON_COLLISION_IMMEDIATE = 0.5
+local LOCKON_FOCAL_EPSILON = 0.15
+local LOCKON_COLLISION_STABILITY = 0.75
+local LOCKON_COLLISION_TREND_TOLERANCE = 0.02
+local LOCKON_COLLISION_CONFIRM_SAMPLES = 3
+local lockon_collision_base, lockon_collision_pending, lockon_collision_confirmed, lockon_collision_pending_samples
+]]
+local began_distance, began_focused = nil, true
+local last_rgp_distance, last_vanilla_distance, last_distance_delta = nil, nil, nil
 
 function camera_module.initialize()
     local pointer_signature = ashita.memory.find('FFXiMain.dll', 0, '83C40485C974118B116A01FF5218C705', 0, 0)
@@ -108,6 +121,71 @@ local function offsets(settings)
     return horizontal * math.sin(theta), horizontal * math.cos(theta), vertical
 end
 
+local function reset_lockon_collision()
+    lockon_collision_base, lockon_collision_pending, lockon_collision_confirmed,
+        lockon_collision_pending_samples = nil, nil, nil, nil
+end
+
+local function observe_lockon_collision(measured, settings)
+    local requested_distance = settings.lockonDistance
+    if lockon_collision_base ~= requested_distance then
+        lockon_collision_base, lockon_collision_pending, lockon_collision_confirmed,
+            lockon_collision_pending_samples = requested_distance, nil, nil, nil
+    end
+    if measured >= requested_distance - COLLISION_DISTANCE_EPSILON then
+        lockon_collision_pending, lockon_collision_confirmed, lockon_collision_pending_samples = nil, nil, nil
+        return requested_distance
+    end
+    if requested_distance - measured >= LOCKON_COLLISION_IMMEDIATE then
+        lockon_collision_pending, lockon_collision_confirmed, lockon_collision_pending_samples = nil, measured, nil
+        return measured
+    end
+    if lockon_collision_confirmed ~= nil
+        and math.abs(measured - lockon_collision_confirmed) <= LOCKON_COLLISION_STABILITY then
+        lockon_collision_pending = nil
+        return lockon_collision_confirmed
+    end
+    if lockon_collision_pending ~= nil
+        and measured <= lockon_collision_pending + LOCKON_COLLISION_TREND_TOLERANCE
+        and lockon_collision_pending - measured <= LOCKON_COLLISION_STABILITY then
+        lockon_collision_pending = measured
+        lockon_collision_pending_samples = (lockon_collision_pending_samples or 1) + 1
+        if lockon_collision_pending_samples >= LOCKON_COLLISION_CONFIRM_SAMPLES then
+            lockon_collision_confirmed, lockon_collision_pending,
+                lockon_collision_pending_samples = measured, nil, nil
+            return measured
+        end
+    else
+        lockon_collision_pending, lockon_collision_pending_samples = measured, 1
+    end
+    return lockon_collision_confirmed or requested_distance
+end
+
+local function lockon_camera_distance(camera, settings)
+    -- If the game replaced the target-centered focal point, the XYZ pose is its
+    -- native lock-on camera pose rather than a collision adjustment to ours.
+    if math.abs(camera.FocalX - target_x) > LOCKON_FOCAL_EPSILON
+        or math.abs(camera.FocalY - target_y) > LOCKON_FOCAL_EPSILON
+        or math.abs(camera.FocalZ - target_z) > LOCKON_FOCAL_EPSILON then
+        return nil
+    end
+    theta = -math.atan2(target_y - player_y, target_x - player_x) % (math.pi * 2)
+    phi = 1.85
+    local ox, oy, oz = offsets(settings)
+    local anchor_x, anchor_y, anchor_z = player_x + ox, player_y + oy, player_z + oz
+    local actual_x, actual_y, actual_z = camera.X - anchor_x, camera.Y - anchor_y,
+        camera.Z - anchor_z
+    local measured = math.sqrt(actual_x * actual_x + actual_y * actual_y + actual_z * actual_z)
+    return math.max(1, measured)
+end
+
+local function get_lockon_collision_distance(settings)
+    if lockon_collision_base ~= settings.lockonDistance then
+        lockon_collision_base, lockon_collision_pending, lockon_collision_confirmed,
+            lockon_collision_pending_samples = settings.lockonDistance, nil, nil, nil
+    end
+    return lockon_collision_confirmed or settings.lockonDistance
+end
 local function update_position(camera, distance, settings)
     if locked_on then
         theta = -math.atan2(target_y - player_y, target_x - player_x) % (math.pi * 2)
@@ -123,41 +201,97 @@ local function update_position(camera, distance, settings)
     camera.Z = az + distance * math.cos(phi)
 end
 
-function camera_module.begin_scene(settings)
+function camera_module.begin_scene(settings, focused)
+    last_rgp_distance, last_vanilla_distance, last_distance_delta = nil, nil, nil
     began = false
+    began_focused = focused ~= false
     local camera = get_camera()
-    if camera == nil or not update_anchors() then return false end
-    update_rotation(settings)
+    if camera == nil then return false end
+    if not update_anchors() then return false end
     local distance_key = locked_on and 'lockonDistance' or 'distance'
-    local distance, zoomed = input.adjust_distance(settings[distance_key], input.get_vertical(),
+    -- Capture the game camera before RadGamepad overwrites its pose.
+    if locked_on then
+        theta = -math.atan2(target_y - player_y, target_x - player_x) % (math.pi * 2)
+    end
+    local ox, oy, oz = offsets(settings)
+    local anchor_x, anchor_y, anchor_z = player_x + ox, player_y + oy, player_z + oz
+    local dx, dy, dz = camera.X - anchor_x, camera.Y - anchor_y, camera.Z - anchor_z
+    local vanilla_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+    -- TEMPORARY COLLISION TEST: use the configured distance directly.
+    local applied_distance = settings[distance_key]
+    -- Camera controls stay live even when the game window is in the background.
+    update_rotation(settings)
+    local adjusted_distance, zoomed = input.adjust_distance(settings[distance_key], input.get_vertical(),
         input.zoom_modifier_held(settings), settings.zoomSpeed, 1, 20)
-    if zoomed then settings[distance_key] = distance end
-    update_position(camera, locked_on and settings.lockonDistance or settings.distance, settings)
+    if zoomed then
+        settings[distance_key] = adjusted_distance
+        applied_distance = adjusted_distance
+    end
+    began_distance = applied_distance
+    last_rgp_distance = applied_distance
+    last_vanilla_distance = vanilla_distance
+    last_distance_delta = applied_distance - vanilla_distance
+    update_position(camera, applied_distance, settings)
     began = true
     return zoomed
 end
 
-function camera_module.end_scene(settings)
+function camera_module.end_scene(settings, focused)
     if not began then return end
     began = false
     local camera = get_camera()
     if camera == nil then return end
+    -- Keep the custom pose stable while the game window is in the background.
+    if not began_focused or focused == false then
+        if update_anchors() then update_position(camera, began_distance, settings) end
+        return
+    end
     local previous_lock_state = locked_on
     if not update_anchors() then return end
     if locked_on ~= previous_lock_state then
+        update_position(camera, began_distance, settings)
+        return
+    end
+    --[[ TEMPORARY COLLISION TEST: skip native collision sampling and distance
+    correction in both exploration and lock-on modes.
+    local previous_lock_state = locked_on
+    if not update_anchors() then return end
+    if locked_on ~= previous_lock_state then
+        reset_lockon_collision()
         update_position(camera, locked_on and settings.lockonDistance or settings.distance, settings)
         return
     end
-    -- Include player movement since BeginScene when measuring the collision
-    -- correction along the camera's current view axis.
+    if locked_on then
+        local measured = lockon_camera_distance(camera, settings)
+        if measured == nil then
+            lockon_collision_pending, lockon_collision_pending_samples = nil, nil
+            update_position(camera, get_lockon_collision_distance(settings), settings)
+            return
+        end
+        local applied = observe_lockon_collision(measured, settings)
+        update_position(camera, applied, settings)
+        return
+    end
+    -- Preserve camera collision correction, including player movement during the frame.
     local ox, oy, oz = offsets(settings)
     local dx, dy, dz = camera.X - player_x - ox, camera.Y - player_y - oy,
         camera.Z - player_z - oz
     local distance = dx * -math.sin(phi) * math.cos(-theta)
         + dy * -math.sin(phi) * math.sin(-theta) + dz * math.cos(phi)
+    if distance >= settings.distance - COLLISION_DISTANCE_EPSILON then
+        distance = settings.distance
+    end
     update_position(camera, distance, settings)
+    ]]
+    update_position(camera, settings[locked_on and 'lockonDistance' or 'distance'], settings)
 end
 
-function camera_module.zone_in() ready, just_zoned, began = base_camera ~= nil, true, false end
+function camera_module.get_distance_sample()
+    return last_rgp_distance, last_vanilla_distance, last_distance_delta
+end
+function camera_module.zone_in()
+    ready, just_zoned, began = base_camera ~= nil, true, false
+    last_rgp_distance, last_vanilla_distance, last_distance_delta = nil, nil, nil
+end
 function camera_module.logout() ready, began = false, false end
 return camera_module

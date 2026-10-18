@@ -10,7 +10,7 @@ Copy this entire folder into `PhoenixXI/addons/radgamepad`. Unload moderncam bef
 /radgamepad
 ```
 
-`/radgamepad` opens or closes the configuration window. Settings save in `radgamepad.ini` through Ashita's configuration manager. Original camera defaults are preserved: distance 6, exploration offsets 1/1, lock-on offsets 0/0, sensitivity 1 and inversion disabled.
+`/radgamepad` and `/rgp` open or close the configuration window. Use `/rgp log <label>` to append a labeled camera-distance difference to `config/addons/radgamepad_camera_distance.log`; each line records both distances and their signed difference (RGP - vanilla); the vanilla distance is sampled at scene start before RadGamepad applies its camera pose. Use `/rgp watch <label>` to append a sample each frame under that label; run `/rgp watch` again to stop. This is diagnostic only and does not alter camera movement. Settings save in `radgamepad.ini` through Ashita's configuration manager. Original camera defaults are preserved: distance 6, exploration offsets 1/1, lock-on offsets 0/0 and sensitivity 1. On first setup, inversion defaults are imported from FFXI Third-Person Camera X/Y config values 139/140; saved Radgamepad settings take precedence on later loads.
 
 Target selection and bumper bindings belong to bettertarget, which is optional. This addon does not hide any HUD elements.
 
