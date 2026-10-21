@@ -2,9 +2,9 @@
 local input = ...
 local ffi = require('ffi')
 local bit = require('bit')
-if not pcall(ffi.typeof, 'struct radgamepad_camera_t') then
+if not pcall(ffi.typeof, 'struct moderncam_camera_t') then
     ffi.cdef[[
-        struct radgamepad_camera_t {
+        struct moderncam_camera_t {
             uint8_t Unknown0000[0x44];
             float X, Z, Y;
             float FocalX, FocalZ, FocalY;
@@ -18,6 +18,7 @@ local theta, phi, player_heading = 0, 1.85, 0
 local player_x, player_y, player_z = 0, 0, 0
 local target_x, target_y, target_z = 0, 0, 0
 local locked_on = false
+local mounted = false
 --[[
 TEMPORARY COLLISION TEST: the old sampling/adjustment implementation is
 kept here as comments so it can be restored after the zoom-jitter check.
@@ -34,13 +35,13 @@ local last_rgp_distance, last_vanilla_distance, last_distance_delta = nil, nil, 
 
 function camera_module.initialize()
     local pointer_signature = ashita.memory.find('FFXiMain.dll', 0, '83C40485C974118B116A01FF5218C705', 0, 0)
-    if not pointer_signature or pointer_signature == 0 then error('[radgamepad] Missing camera signature.') end
+    if not pointer_signature or pointer_signature == 0 then error('[ModernCam] Missing camera signature.') end
     local slot = ashita.memory.read_uint32(pointer_signature + 0x10)
-    if not slot or slot == 0 then error('[radgamepad] Missing camera pointer.') end
+    if not slot or slot == 0 then error('[ModernCam] Missing camera pointer.') end
     local connection_signature = ashita.memory.find('FFXiMain.dll', 0, '80A0B2000000FBC605????????00', 0x09, 0)
-    if not connection_signature or connection_signature == 0 then error('[radgamepad] Missing camera connection signature.') end
+    if not connection_signature or connection_signature == 0 then error('[ModernCam] Missing camera connection signature.') end
     local connection = ashita.memory.read_uint32(connection_signature)
-    if not connection or connection == 0 then error('[radgamepad] Missing camera connection pointer.') end
+    if not connection or connection == 0 then error('[ModernCam] Missing camera connection pointer.') end
     base_camera = ffi.cast('uint32_t*', slot)
     connected = ffi.cast('bool*', connection)
     follow = AshitaCore:GetMemoryManager():GetAutoFollow()
@@ -52,7 +53,7 @@ local function get_camera()
         or follow:GetIsFirstPersonCamera() ~= 0 or GetPlayerEntity() == nil then return nil end
     local address = base_camera[0]
     if not address or address == 0 then return nil end
-    return ffi.cast('struct radgamepad_camera_t*', address)
+    return ffi.cast('struct moderncam_camera_t*', address)
 end
 
 local function get_bone(actor, bone)
@@ -86,6 +87,9 @@ local function update_anchors()
     player_x, player_y, player_z = x, y, z + 0.5
     player_heading = entity:GetHeading(player.TargetIndex) % (math.pi * 2)
     locked_on = bit.band(target:GetLockedOnFlags(), 1) == 1
+    local mount_id = 0
+    pcall(function() mount_id = entity:GetMountId(player.TargetIndex) or 0 end)
+    mounted = mount_id ~= 0
     if locked_on then
         local index = target:GetTargetIndex(0)
         if not index or index <= 0 or index >= 0x900 then locked_on = false; return true end
@@ -107,7 +111,7 @@ end
 local function update_rotation(settings)
     if just_zoned then theta, phi, just_zoned = player_heading, 1.85, false end
     local horizontal_axis, vertical_axis = input.get_camera_rotation_axes(settings)
-    local horizontal_direction = settings.invertHorizontal and -1 or 1
+    local horizontal_direction = settings.invertHorizontal and 1 or -1
     theta = (theta + horizontal_axis * horizontal_direction * 0.033333
         * settings.cameraSensitivity * settings.horizontalSensitivity) % (math.pi * 2)
     local vertical_direction = settings.invertVertical and -1 or 1
@@ -116,8 +120,10 @@ local function update_rotation(settings)
 end
 
 local function offsets(settings)
-    local horizontal = -(locked_on and settings.horizontalOffsetLockon or settings.horizontalOffset)
-    local vertical = -(locked_on and settings.verticalOffsetLockon or settings.verticalOffset)
+    local horizontal = -(mounted and settings.mountedHorizontalOffset
+        or locked_on and settings.horizontalOffsetLockon or settings.horizontalOffset)
+    local vertical = -(mounted and settings.mountedVerticalOffset
+        or locked_on and settings.verticalOffsetLockon or settings.verticalOffset)
     return horizontal * math.sin(theta), horizontal * math.cos(theta), vertical
 end
 
@@ -208,7 +214,7 @@ function camera_module.begin_scene(settings, focused)
     local camera = get_camera()
     if camera == nil then return false end
     if not update_anchors() then return false end
-    local distance_key = locked_on and 'lockonDistance' or 'distance'
+    local distance_key = mounted and 'mountedDistance' or (locked_on and 'lockonDistance' or 'distance')
     -- Capture the game camera before RadGamepad overwrites its pose.
     if locked_on then
         theta = -math.atan2(target_y - player_y, target_x - player_x) % (math.pi * 2)
@@ -283,7 +289,8 @@ function camera_module.end_scene(settings, focused)
     end
     update_position(camera, distance, settings)
     ]]
-    update_position(camera, settings[locked_on and 'lockonDistance' or 'distance'], settings)
+    local distance_key = mounted and 'mountedDistance' or (locked_on and 'lockonDistance' or 'distance')
+    update_position(camera, settings[distance_key], settings)
 end
 
 function camera_module.get_distance_sample()

@@ -19,4 +19,4 @@ axes.reset()
 near(axes.horizontal(), 0)
 near(axes.vertical(), 0)
 
-print('radgamepad input axis tests passed')
+print('moderncam input axis tests passed')

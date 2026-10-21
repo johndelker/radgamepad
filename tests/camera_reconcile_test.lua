@@ -8,7 +8,7 @@ local fake_ffi = {
     cast = function(kind, address)
         if kind == 'uint32_t*' then return {[0] = 100} end
         if kind == 'bool*' then return {[0] = true} end
-        if kind == 'struct radgamepad_camera_t*' then return camera_state end
+        if kind == 'struct moderncam_camera_t*' then return camera_state end
         error('unexpected ffi cast: ' .. kind)
     end,
 }
@@ -88,7 +88,7 @@ assert(camera.begin_scene(settings, true) == false)
 local rgp_distance, vanilla_distance, distance_delta = camera.get_distance_sample()
 assert(math.abs(rgp_distance - 6) < 0.0001, 'diagnostic should report configured RadGamepad distance')
 assert(math.abs(vanilla_distance - 4.5) < 0.0001, 'diagnostic should capture the pre-override game camera distance')
-assert(math.abs(distance_delta - 1.5) < 0.0001, 'diagnostic should report RGP minus vanilla distance')
+assert(math.abs(distance_delta - 1.5) < 0.0001, 'diagnostic should report ModernCam minus vanilla distance')
 set_camera_distance(4.5)
 camera.end_scene(settings, true)
 assert(math.abs(read_camera_distance() - settings.distance) < 0.0001,
@@ -123,4 +123,4 @@ assert(camera.begin_scene(settings, false) == false)
 camera.end_scene(settings, false)
 assert(math.abs(camera_state.X - before_x) + math.abs(camera_state.Y - before_y) > 0.001,
     'camera stick input should still rotate the camera while FFXI is unfocused')
-print('radgamepad camera collision bypass tests passed')
+print('moderncam camera collision bypass tests passed')

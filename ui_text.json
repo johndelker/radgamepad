@@ -1,0 +1,158 @@
+{
+  "window": {
+    "title": "Modern Camera"
+  },
+  "tabs": {
+    "Camera Position": "Camera Position",
+    "Camera Rotation": "Camera Rotation",
+    "Panel Config": "Panel Config"
+  },
+  "sections": {
+    "Camera Profiles": {
+      "title": "Camera Profiles",
+      "description": "Set distance and framing for standard, locked-on, and mounted camera modes."
+    },
+    "Zoom Modifier": {
+      "title": "Zoom Modifier",
+      "description": "Hold the binding and move the right thumbstick up or down to adjust the active camera profile distance."
+    },
+    "Camera Rotation": {
+      "title": "Camera Rotation",
+      "description": "Adjust how the right thumbstick, arrow keys, and mouse-edge panning move the camera."
+    },
+    "Mouse and Keyboard": {
+      "title": "Mouse and Keyboard",
+      "description": "Capture arrow keys and mouse movement at the edge of the game window."
+    },
+    "Appearance": {
+      "title": "Appearance",
+      "description": "Click Apply to save typeface, size, shared control width, and border width."
+    },
+    "Colors": {
+      "title": "Colors",
+      "description": "Customize the panel background, text, and interaction colors."
+    }
+  },
+  "settings": {
+    "panelFont": {
+      "label": "Font Family",
+      "description": "Select the typeface used by this config window."
+    },
+    "panelFontSize": {
+      "label": "Font Size",
+      "description": "Choose the config text size."
+    },
+    "panelControlWidth": {
+      "label": "Control Width",
+      "description": "Set the shared width for sliders, toggles, and dropdowns."
+    },
+    "panelBorderWidth": {
+      "label": "Border Width",
+      "description": "Set the panel and section border thickness."
+    },
+    "Sensitivity": {
+      "label": "Sensitivity",
+      "description": "Set overall right-stick camera sensitivity."
+    },
+    "Horizontal Multiplier": {
+      "label": "Horizontal Multiplier",
+      "description": "Adjust horizontal camera rotation sensitivity."
+    },
+    "Vertical Multiplier": {
+      "label": "Vertical Multiplier",
+      "description": "Adjust vertical camera rotation sensitivity."
+    },
+    "Invert Horizontal": {
+      "label": "Invert Horizontal",
+      "description": "Reverse horizontal camera rotation."
+    },
+    "Invert Vertical": {
+      "label": "Invert Vertical",
+      "description": "Reverse vertical camera rotation."
+    },
+    "Enable Mouse and Keyboard": {
+      "label": "Enable Mouse and Keyboard",
+      "description": "Use keyboard arrow keys and position the cursor at a game-window edge to rotate the camera."
+    },
+    "Mouse Sensitivity": {
+      "label": "Mouse Sensitivity",
+      "description": "Adjust rotation speed while the cursor is at a game-window edge."
+    },
+    "Keyboard Sensitivity": {
+      "label": "Keyboard Sensitivity",
+      "description": "Adjust rotation speed while holding a camera arrow key."
+    },
+    "Zoom Modifier": {
+      "label": "Zoom Modifier",
+      "description": "Hold this binding and move the right stick vertically to zoom."
+    },
+    "Zoom Speed": {
+      "label": "Zoom Speed",
+      "description": "Set how quickly the active profile zooms."
+    },
+    "Distance": {
+      "label": "Distance",
+      "description": "Camera distance from its current anchor."
+    },
+    "X Offset": {
+      "label": "X Offset",
+      "description": "Horizontal framing offset."
+    },
+    "Y Offset": {
+      "label": "Y Offset",
+      "description": "Vertical framing offset."
+    },
+    "Background Color": {
+      "label": "Background Color",
+      "description": "Panel background color."
+    },
+    "Secondary Color": {
+      "label": "Secondary Color",
+      "description": "Section and control background color."
+    },
+    "Secondary Text Color": {
+      "label": "Secondary Text Color",
+      "description": "Color used for section descriptions."
+    },
+    "Text Color": {
+      "label": "Text Color",
+      "description": "Main config text color."
+    },
+    "Highlight Color": {
+      "label": "Highlight Color",
+      "description": "Selected controls and borders."
+    },
+    "Highlight Hover Color": {
+      "label": "Highlight Hover Color",
+      "description": "Hovered controls."
+    },
+    "Font Family": {
+      "label": "Font Family",
+      "description": "Select the typeface used by this config window."
+    },
+    "Font Size": {
+      "label": "Font Size",
+      "description": "Choose the config text size."
+    },
+    "Control Width": {
+      "label": "Control Width",
+      "description": "Set the shared width for sliders, toggles, and dropdowns."
+    },
+    "Border Width": {
+      "label": "Border Width",
+      "description": "Set the panel and section border thickness."
+    },
+    "Standard": {
+      "label": "Standard",
+      "description": "Camera profile used while exploring."
+    },
+    "Locked-On": {
+      "label": "Locked-On",
+      "description": "Camera profile used while locked on to a target."
+    },
+    "Mounted": {
+      "label": "Mounted",
+      "description": "Camera profile used while mounted."
+    }
+  }
+}

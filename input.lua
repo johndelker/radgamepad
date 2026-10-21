@@ -1,10 +1,23 @@
--- Axes are updated from Ashita's xinput_state event in radgamepad.lua.
+-- Controller axes are updated from Ashita's xinput_state event in moderncam.lua.
 local directory = debug.getinfo(1, 'S').source:sub(2):match('(.*[\\/])') or './'
 local axes = dofile(directory .. 'input_axes.lua')
 local input = {}
 local source_ids = {xinput = 1, dinput = 2}
 local held, binding = {}, false
 local trigger_held = {left = false, right = false}
+local viewport_width, viewport_height = 0, 0
+local mouse_edge_x, mouse_edge_y = 0, 0
+local edge_panning_enabled = false
+local ui_menu_open = false
+local mouse_buttons = {left = false, right = false}
+local mouse_drag_x, mouse_drag_y = 0, 0
+local mouse_last_x, mouse_last_y = nil, nil
+local keyboard_held = {up = false, down = false, left = false, right = false}
+local camera_key_binding = nil
+local camera_key_settings = {
+    left = 'cameraLeftKey', right = 'cameraRightKey',
+    up = 'cameraUpKey', down = 'cameraDownKey',
+}
 
 local function input_key(source, button)
     return source .. ':' .. tostring(button)
@@ -26,14 +39,171 @@ function input.initialize()
     axes.reset()
     held, binding = {}, false
     trigger_held.left, trigger_held.right = false, false
+    mouse_edge_x, mouse_edge_y = 0, 0
+    edge_panning_enabled = false
+    ui_menu_open = false
+    mouse_buttons.left, mouse_buttons.right = false, false
+    mouse_drag_x, mouse_drag_y = 0, 0
+    mouse_last_x, mouse_last_y = nil, nil
+    for key in pairs(keyboard_held) do keyboard_held[key] = false end
+    camera_key_binding = nil
 end
 function input.shutdown() input.initialize() end
 function input.update_axes(horizontal, vertical) axes.update(horizontal, vertical) end
 function input.get_horizontal() return axes.horizontal() end
 function input.get_vertical() return axes.vertical() end
 function input.get_camera_rotation_axes(settings)
+    local drag_x, drag_y = mouse_drag_x, mouse_drag_y
+    mouse_drag_x, mouse_drag_y = 0, 0
     if input.zoom_modifier_held(settings) then return 0, 0 end
-    return axes.horizontal(), axes.vertical()
+    local horizontal, vertical = axes.horizontal(), axes.vertical()
+    local mouse_sensitivity = settings.mouseSensitivity or 1
+    horizontal = horizontal + drag_x * mouse_sensitivity
+    vertical = vertical + drag_y * mouse_sensitivity
+    if settings.mouseKeyboardEnabled and not ui_menu_open then
+        if keyboard_held.left then horizontal = horizontal - settings.keyboardSensitivity end
+        if keyboard_held.right then horizontal = horizontal + settings.keyboardSensitivity end
+        if keyboard_held.up then vertical = vertical + settings.keyboardSensitivity end
+        if keyboard_held.down then vertical = vertical - settings.keyboardSensitivity end
+        horizontal = horizontal + mouse_edge_x * settings.mouseSensitivity
+        vertical = vertical + mouse_edge_y * settings.mouseSensitivity
+    end
+    return horizontal, vertical
+end
+
+function input.set_viewport(width, height)
+    viewport_width, viewport_height = tonumber(width) or 0, tonumber(height) or 0
+end
+
+function input.clear_mouse_input()
+    mouse_edge_x, mouse_edge_y = 0, 0
+end
+
+function input.set_edge_panning_enabled(value)
+    edge_panning_enabled = value == true
+    if not edge_panning_enabled then input.clear_mouse_input() end
+end
+
+function input.get_edge_pan_state()
+    return edge_panning_enabled, mouse_edge_x, mouse_edge_y
+end
+
+function input.clear_mouse_buttons()
+    mouse_buttons.left, mouse_buttons.right = false, false
+    mouse_drag_x, mouse_drag_y = 0, 0
+    mouse_last_x, mouse_last_y = nil, nil
+end
+
+function input.set_menu_open(value)
+    ui_menu_open = value == true
+    if ui_menu_open then
+        input.clear_mouse_input()
+        input.clear_mouse_buttons()
+        for key in pairs(keyboard_held) do keyboard_held[key] = false end
+    end
+end
+
+function input.begin_camera_key_binding(direction)
+    if camera_key_settings[direction] == nil then return false end
+    camera_key_binding = direction
+    for key in pairs(keyboard_held) do keyboard_held[key] = false end
+    return true
+end
+
+function input.camera_key_binding() return camera_key_binding end
+
+function input.camera_key_label(settings, direction)
+    local setting = camera_key_settings[direction]
+    local code = setting and settings[setting] or 0
+    if not code or code == 0 then return 'Unbound' end
+    local ok, value = pcall(function() return AshitaCore:GetInputManager():GetKeyboard():D2S(code) end)
+    return tostring(ok and value or ('Key ' .. tostring(code)))
+end
+
+function input.handle_key(settings, event, menu_open, save, game_menu_open)
+    local code = tonumber(event.key)
+    if not code then return false end
+    local direction
+    for candidate, setting in pairs(camera_key_settings) do
+        if settings[setting] == code then direction = candidate; break end
+    end
+    if event.down ~= true then
+        if direction then keyboard_held[direction] = false end
+        return false
+    end
+    if event.injected or event.blocked then return false end
+    if camera_key_binding and menu_open then
+        local setting = camera_key_settings[camera_key_binding]
+        for other_direction, other_setting in pairs(camera_key_settings) do
+            if other_direction ~= camera_key_binding and settings[other_setting] == code then settings[other_setting] = 0 end
+        end
+        settings[setting] = code
+        camera_key_binding = nil
+        if save then save(settings) end
+        event.blocked = true
+        return true, true
+    end
+    if not direction or menu_open or game_menu_open or not settings.mouseKeyboardEnabled then return false end
+    keyboard_held[direction] = true
+    event.blocked = true
+    return true
+end
+
+function input.handle_mouse(settings, event, menu_open, edge_panning_enabled)
+    local message = tonumber(event.message)
+    if not message then return false end
+    if message == 0x0201 or message == 0x0204 then
+        if not menu_open and settings.mouseKeyboardEnabled then
+            local x, y = tonumber(event.x), tonumber(event.y)
+            if message == 0x0201 then mouse_buttons.left = true else mouse_buttons.right = true end
+            mouse_last_x, mouse_last_y = x, y
+        end
+        return false
+    elseif message == 0x0202 or message == 0x0205 then
+        if message == 0x0202 then mouse_buttons.left = false else mouse_buttons.right = false end
+        if not mouse_buttons.left and not mouse_buttons.right then
+            mouse_last_x, mouse_last_y = nil, nil
+        end
+        return false
+    end
+    if message ~= 0x0200 then return false end
+    local x, y = tonumber(event.x), tonumber(event.y)
+    if not x or not y then return false end
+    if not settings.mouseKeyboardEnabled or menu_open then
+        input.clear_mouse_input()
+        input.clear_mouse_buttons()
+        return false
+    end
+    input.set_edge_panning_enabled(edge_panning_enabled)
+
+    if mouse_buttons.left or mouse_buttons.right then
+        if mouse_last_x ~= nil and mouse_last_y ~= nil then
+            mouse_drag_x = mouse_drag_x + math.max(-10, math.min(10, (x - mouse_last_x) * 0.1))
+            mouse_drag_y = mouse_drag_y - math.max(-10, math.min(10, (y - mouse_last_y) * 0.1))
+        end
+        mouse_last_x, mouse_last_y = x, y
+        event.blocked = true
+        return true
+    end
+
+    if viewport_width <= 0 or viewport_height <= 0 then
+        input.clear_mouse_input()
+        return false
+    end
+    local horizontal, vertical = 0, 0
+    local edge = 18
+    if x >= 0 and x < edge then horizontal = -(edge - x) / edge
+    elseif x <= viewport_width and x > viewport_width - edge then horizontal = (x - (viewport_width - edge)) / edge end
+    if y >= 0 and y < edge then vertical = (edge - y) / edge
+    elseif y <= viewport_height and y > viewport_height - edge then vertical = -(y - (viewport_height - edge)) / edge end
+    if edge_panning_enabled then
+        mouse_edge_x = math.max(-1, math.min(1, horizontal))
+        mouse_edge_y = math.max(-1, math.min(1, vertical))
+    else
+        input.clear_mouse_input()
+    end
+    if horizontal ~= 0 or vertical ~= 0 then event.blocked = true; return true end
+    return false
 end
 
 function input.begin_zoom_binding()
