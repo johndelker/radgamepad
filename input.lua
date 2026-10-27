@@ -12,6 +12,8 @@ local ui_menu_open = false
 local mouse_buttons = {left = false, right = false}
 local mouse_drag_x, mouse_drag_y = 0, 0
 local mouse_last_x, mouse_last_y = nil, nil
+local camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+local camera_cursor_was_active = false
 local keyboard_held = {up = false, down = false, left = false, right = false}
 local camera_key_binding = nil
 local camera_key_settings = {
@@ -45,6 +47,8 @@ function input.initialize()
     mouse_buttons.left, mouse_buttons.right = false, false
     mouse_drag_x, mouse_drag_y = 0, 0
     mouse_last_x, mouse_last_y = nil, nil
+    camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+    camera_cursor_was_active = false
     for key in pairs(keyboard_held) do keyboard_held[key] = false end
     camera_key_binding = nil
 end
@@ -92,6 +96,8 @@ function input.clear_mouse_buttons()
     mouse_buttons.left, mouse_buttons.right = false, false
     mouse_drag_x, mouse_drag_y = 0, 0
     mouse_last_x, mouse_last_y = nil, nil
+    camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+    camera_cursor_was_active = false
 end
 
 function input.set_menu_open(value)
@@ -149,7 +155,7 @@ function input.handle_key(settings, event, menu_open, save, game_menu_open)
     return true
 end
 
-function input.handle_mouse(settings, event, menu_open, edge_panning_enabled)
+function input.handle_mouse(settings, event, menu_open, edge_panning_enabled, camera_cursor_active)
     local message = tonumber(event.message)
     if not message then return false end
     if message == 0x0201 or message == 0x0204 then
@@ -157,12 +163,16 @@ function input.handle_mouse(settings, event, menu_open, edge_panning_enabled)
             local x, y = tonumber(event.x), tonumber(event.y)
             if message == 0x0201 then mouse_buttons.left = true else mouse_buttons.right = true end
             mouse_last_x, mouse_last_y = x, y
+            camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+            camera_cursor_was_active = false
         end
         return false
     elseif message == 0x0202 or message == 0x0205 then
         if message == 0x0202 then mouse_buttons.left = false else mouse_buttons.right = false end
         if not mouse_buttons.left and not mouse_buttons.right then
             mouse_last_x, mouse_last_y = nil, nil
+            camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+            camera_cursor_was_active = false
         end
         return false
     end
@@ -176,14 +186,38 @@ function input.handle_mouse(settings, event, menu_open, edge_panning_enabled)
     end
     input.set_edge_panning_enabled(edge_panning_enabled)
 
-    if mouse_buttons.left or mouse_buttons.right then
+    -- The blue camera cursor is the game's authoritative indication that a
+    -- mouse gesture is rotating the camera. Do not require that ModernCam
+    -- also observed the button-down event; another callback may have consumed
+    -- it before this addon saw it.
+    if camera_cursor_active then
+        if not camera_cursor_was_active then
+            camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+        end
+        camera_cursor_was_active = true
+        local delta_x, delta_y = 0, 0
         if mouse_last_x ~= nil and mouse_last_y ~= nil then
-            mouse_drag_x = mouse_drag_x + math.max(-10, math.min(10, (x - mouse_last_x) * 0.1))
-            mouse_drag_y = mouse_drag_y - math.max(-10, math.min(10, (y - mouse_last_y) * 0.1))
+            delta_x, delta_y = x - mouse_last_x, y - mouse_last_y
+            mouse_drag_x = mouse_drag_x + math.max(-10, math.min(10, delta_x * 0.1))
+            mouse_drag_y = mouse_drag_y - math.max(-10, math.min(10, delta_y * 0.1))
+            -- Favor recent motion so a long drag in one direction does not
+            -- make the cursor sluggish when the user changes direction.
+            camera_cursor_drag_x = camera_cursor_drag_x * 0.65 + delta_x
+            camera_cursor_drag_y = camera_cursor_drag_y * 0.65 + delta_y
         end
         mouse_last_x, mouse_last_y = x, y
         event.blocked = true
-        return true
+        return true, camera_cursor_drag_x, camera_cursor_drag_y
+    end
+    camera_cursor_was_active = false
+    if mouse_buttons.left or mouse_buttons.right then
+        -- A held button without the camera cursor belongs to normal mouse/UI
+        -- interaction. Keep the origin current so it cannot create a jump if
+        -- the game later switches the cursor into camera mode.
+        mouse_last_x, mouse_last_y = x, y
+        mouse_drag_x, mouse_drag_y = 0, 0
+        camera_cursor_drag_x, camera_cursor_drag_y = 0, 0
+        return false
     end
 
     if viewport_width <= 0 or viewport_height <= 0 then

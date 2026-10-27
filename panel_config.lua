@@ -72,6 +72,31 @@ function panel.setting_label(key, fallback)
     return type(item) == 'table' and item.label or fallback
 end
 
+function panel.setting_description(key)
+    local item = ui_text.settings and ui_text.settings[key]
+    if type(item) == 'table' and type(item.description) == 'string' and item.description ~= '' then
+        return item.description
+    end
+    return 'Configure ' .. tostring(key) .. '.'
+end
+
+function panel.option_description(dropdown, option)
+    local options = ui_text.options and ui_text.options[dropdown]
+    local description = type(options) == 'table' and options[tostring(option)] or nil
+    if type(description) == 'string' and description ~= '' then return description end
+    return 'Select ' .. tostring(option) .. '.'
+end
+
+function panel.show_tooltip(imgui, description)
+    if description and imgui.IsItemHovered() then
+        imgui.BeginTooltip()
+        imgui.PushTextWrapPos(imgui.GetFontSize() * 22)
+        imgui.TextWrapped(description)
+        imgui.PopTextWrapPos()
+        imgui.EndTooltip()
+    end
+end
+
 function panel.section_text(title, fallback)
     local item = ui_text.sections and ui_text.sections[title]
     if type(item) ~= 'table' then return title, fallback end
@@ -82,18 +107,31 @@ function panel.tab_label(label)
     return (ui_text.tabs and ui_text.tabs[label]) or label
 end
 
-function panel.centered_selectable(imgui, label, selected, settings)
+function panel.centered_selectable(imgui, label, selected, settings, dropdown_key)
     local x, y = imgui.GetCursorScreenPos()
     local width = imgui.GetContentRegionAvail()
     local height = imgui.GetTextLineHeightWithSpacing()
     imgui.PushID(label)
     local clicked = imgui.Selectable('##CenteredChoice', selected, ImGuiSelectableFlags_None, {width, height})
+    panel.show_tooltip(imgui, panel.option_description(dropdown_key, label))
     imgui.PopID()
     local text_width, text_height = imgui.CalcTextSize(label)
     local draw = imgui.GetWindowDrawList()
     draw:AddText({x + (width - text_width) * 0.5, y + (height - text_height) * 0.5},
         panel.color_u32(imgui, settings, 'Text'), label)
     return clicked
+end
+
+function panel.draw_combo_preview(imgui, key, preview, settings, width)
+    local x, y = imgui.GetCursorScreenPos()
+    imgui.SetNextItemWidth(width)
+    local open = imgui.BeginCombo('##combo_' .. key, '')
+    local frame_height = imgui.GetFrameHeight()
+    local text_width, text_height = imgui.CalcTextSize(preview)
+    local preview_width = math.max(0, width - frame_height)
+    imgui.GetWindowDrawList():AddText({x + (preview_width - text_width) * 0.5,
+        y + (frame_height - text_height) * 0.5}, panel.color_u32(imgui, settings, 'Text'), preview)
+    return open
 end
 
 function panel.font_choices()
@@ -157,7 +195,6 @@ end
 
 function panel.push_theme(imgui, settings)
     local bg = panel.color(settings, 'Background')
-    local secondary = panel.color(settings, 'Secondary')
     local text = panel.color(settings, 'Text')
     local dim = panel.color(settings, 'SecondaryText')
     local highlight = panel.color(settings, 'Highlight')
@@ -165,7 +202,7 @@ function panel.push_theme(imgui, settings)
     for _, item in ipairs({
         {ImGuiCol_WindowBg, bg}, {ImGuiCol_ChildBg, {0, 0, 0, 0}}, {ImGuiCol_Border, highlight},
         {ImGuiCol_Text, text}, {ImGuiCol_TextDisabled, dim},
-        {ImGuiCol_FrameBg, secondary}, {ImGuiCol_FrameBgHovered, hover}, {ImGuiCol_FrameBgActive, highlight},
+        {ImGuiCol_FrameBg, bg}, {ImGuiCol_FrameBgHovered, hover}, {ImGuiCol_FrameBgActive, highlight},
         {ImGuiCol_Header, highlight}, {ImGuiCol_HeaderHovered, hover}, {ImGuiCol_HeaderActive, highlight},
         {ImGuiCol_Button, highlight}, {ImGuiCol_ButtonHovered, hover}, {ImGuiCol_ButtonActive, highlight},
         {ImGuiCol_CheckMark, hover}, {ImGuiCol_SliderGrab, text}, {ImGuiCol_SliderGrabActive, hover},

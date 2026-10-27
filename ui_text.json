@@ -154,5 +154,17 @@
       "label": "Mounted",
       "description": "Camera profile used while mounted."
     }
+  },
+  "options": {
+    "panelFont": {
+      "Default": "Use the default game UI font.",
+      "Arial": "Use Arial for this config window.",
+      "Calibri": "Use Calibri for this config window.",
+      "Consolas": "Use Consolas for this config window.",
+      "Segoe UI": "Use Segoe UI for this config window.",
+      "Tahoma": "Use Tahoma for this config window.",
+      "Times New Roman": "Use Times New Roman for this config window.",
+      "Verdana": "Use Verdana for this config window."
+    }
   }
 }

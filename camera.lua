@@ -75,6 +75,10 @@ local function get_bone(actor, bone)
         z + ashita.memory.read_float(generators + bone * 0x1A + 0x12)
 end
 
+local function is_mount_status(status)
+    return status == 5 or status == 85
+end
+
 local function update_anchors()
     local player = GetPlayerEntity()
     if not player then return false end
@@ -87,9 +91,20 @@ local function update_anchors()
     player_x, player_y, player_z = x, y, z + 0.5
     player_heading = entity:GetHeading(player.TargetIndex) % (math.pi * 2)
     locked_on = bit.band(target:GetLockedOnFlags(), 1) == 1
-    local mount_id = 0
-    pcall(function() mount_id = entity:GetMountId(player.TargetIndex) or 0 end)
-    mounted = mount_id ~= 0
+    -- GetPlayerEntity() is the raw player record. Read its mount field directly
+    -- first; the indexed entity-manager access can lag or fail independently.
+    local mount_id, player_status, player_server_status = 0, nil, nil
+    pcall(function() mount_id = tonumber(player.MountId) or 0 end)
+    pcall(function() player_status = tonumber(player.Status) end)
+    pcall(function() player_server_status = tonumber(player.StatusServer) end)
+    local entity_mount_id, entity_status = 0, nil
+    pcall(function() entity_mount_id = entity:GetMountId(player.TargetIndex) or 0 end)
+    pcall(function() entity_status = entity:GetStatus(player.TargetIndex) end)
+    -- FFXI reports chocobo riding as status 5 and other mount riding as 85.
+    -- Some clients leave MountId at zero, so recognize both status values too.
+    mounted = mount_id ~= 0 or entity_mount_id ~= 0
+        or is_mount_status(player_status) or is_mount_status(player_server_status)
+        or is_mount_status(entity_status)
     if locked_on then
         local index = target:GetTargetIndex(0)
         if not index or index <= 0 or index >= 0x900 then locked_on = false; return true end
